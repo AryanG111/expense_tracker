@@ -1,0 +1,5 @@
+Flask==2.3.2
+Jinja2
+itsdangerous
+click
+MarkupSafe
