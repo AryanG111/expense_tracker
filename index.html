@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card income">
+        <h3>💵 Total Income</h3>
+        <div class="amount">₹{{ "%.2f"|format(total_income) }}</div>
+    </div>
+    <div class="stat-card expense">
+        <h3>💸 Total Expenses</h3>
+        <div class="amount">₹{{ "%.2f"|format(total_expenses) }}</div>
+    </div>
+    <div class="stat-card balance">
+        <h3>💎 Balance</h3>
+        <div class="amount">₹{{ "%.2f"|format(balance) }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 20px; color: #e5e7eb;">➕ Add New Transaction</h2>
+    <form method="POST" action="/add_transaction">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            <div class="form-group">
+                <label for="type">Type</label>
+                <select name="type" id="type" required>
+                    <option value="income">Income</option>
+                    <option value="expense">Expense</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="category">Category</label>
+                <input type="text" name="category" id="category" required placeholder="e.g., Salary, Food, Rent">
+            </div>
+            <div class="form-group">
+                <label for="amount">Amount (₹)</label>
+                <input type="number" name="amount" id="amount" step="0.01" required placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label for="date">Date</label>
+                <input type="date" name="date" id="date" required>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="description">Description (Optional)</label>
+            <textarea name="description" id="description" rows="2" placeholder="Add notes about this transaction..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-success">Add Transaction</button>
+    </form>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 25px;">
+    <div class="card">
+        <h2 style="margin-bottom: 20px; color: #e5e7eb;">📊 Spending by Category</h2>
+        {% if expense_by_category %}
+            <div style="max-height: 400px; overflow-y: auto;">
+                {% for item in expense_by_category %}
+                <div style="margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span style="font-weight: 600;">{{ item.category }}</span>
+                        <span style="color: #f87171;">₹{{ "%.2f"|format(item.total) }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ (item.total / total_expenses * 100) if total_expenses > 0 else 0 }}%">
+                            {{ "%.1f"|format((item.total / total_expenses * 100) if total_expenses > 0 else 0) }}%
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="color: #9ca3af; text-align: center; padding: 40px;">No expenses recorded this month</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2 style="margin-bottom: 20px; color: #e5e7eb;">🎯 Savings Goals</h2>
+        {% if savings_goals %}
+            <div style="max-height: 400px; overflow-y: auto;">
+                {% for goal in savings_goals %}
+                <div style="margin-bottom: 20px; padding: 15px; background: rgba(15, 23, 42, 0.4); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <strong style="font-size: 1.1em;">{{ goal.name }}</strong>
+                        <span style="color: #34d399;">{{ "%.1f"|format((goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0) }}%</span>
+                    </div>
+                    <div style="color: #9ca3af; font-size: 0.9em; margin-bottom: 8px;">
+                        ₹{{ "%.2f"|format(goal.current_amount) }} / ₹{{ "%.2f"|format(goal.target_amount) }}
+                    </div>
+                    <div class="progress-bar">
+                        {% set progress = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0 %}
+                        <div class="progress-fill {% if progress >= 75 %}{% elif progress >= 50 %}warning{% else %}danger{% endif %}" 
+                             style="width: {{ progress }}%">
+                            ₹{{ "%.0f"|format(goal.target_amount - goal.current_amount) }} to go
+                        </div>
+                    </div>
+                    {% if goal.deadline %}
+                    <div style="color: #9ca3af; font-size: 0.85em; margin-top: 8px;">
+                        📅 Deadline: {{ goal.deadline }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p style="color: #9ca3af; text-align: center; padding: 40px;">No savings goals set yet</p>
+        {% endif %}
+        <a href="/savings" class="btn" style="display: block; text-align: center; margin-top: 15px; text-decoration: none;">Manage Goals</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 20px; color: #e5e7eb;">📝 Recent Transactions</h2>
+    {% if recent_transactions %}
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in recent_transactions %}
+                    <tr>
+                        <td>{{ transaction.date }}</td>
+                        <td><span class="badge {{ transaction.type }}">{{ transaction.type|title }}</span></td>
+                        <td>{{ transaction.category }}</td>
+                        <td style="color: #9ca3af;">{{ transaction.description or '-' }}</td>
+                        <td style="font-weight: 600; color: {{ '#34d399' if transaction.type == 'income' else '#f87171' }};">
+                            {{ '+' if transaction.type == 'income' else '-' }}₹{{ "%.2f"|format(transaction.amount) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <a href="/transactions" class="btn" style="display: block; text-align: center; margin-top: 20px; text-decoration: none;">View All Transactions</a>
+    {% else %}
+        <p style="color: #9ca3af; text-align: center; padding: 40px;">No transactions yet. Add your first transaction above!</p>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Set today's date as default
+    document.getElementById('date').valueAsDate = new Date();
+</script>
+{% endblock %}

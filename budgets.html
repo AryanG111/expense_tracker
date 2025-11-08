@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 25px; margin-bottom: 25px;">
+    <div class="card">
+        <h2 style="margin-bottom: 20px; color: #e5e7eb;">➕ Set Budget</h2>
+        <form method="POST" action="/add_budget">
+            <div class="form-group">
+                <label for="category">Category</label>
+                <input type="text" name="category" id="category" required placeholder="e.g., Food, Transportation, Entertainment">
+            </div>
+            <div class="form-group">
+                <label for="amount">Monthly Budget (₹)</label>
+                <input type="number" name="amount" id="amount" step="0.01" required placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label for="month">Month</label>
+                <input type="month" name="month" id="month" value="{{ current_month }}" required>
+            </div>
+            <button type="submit" class="btn btn-success">Set Budget</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2 style="margin-bottom: 20px; color: #e5e7eb;">📊 Budget Overview</h2>
+        {% if budgets %}
+            {% set total_budget = budgets|map(attribute='budget')|sum %}
+            {% set total_spent = budgets|map(attribute='spent')|sum %}
+            {% set overall_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0 %}
+            
+            <div style="margin-bottom: 25px; padding: 20px; background: rgba(15, 23, 42, 0.6); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                    <div>
+                        <div style="color: #9ca3af; font-size: 0.9em; margin-bottom: 5px;">Total Budget</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: #a5b4fc;">₹{{ "%.2f"|format(total_budget) }}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="color: #9ca3af; font-size: 0.9em; margin-bottom: 5px;">Total Spent</div>
+                        <div style="font-size: 1.5em; font-weight: bold; color: {{ '#34d399' if overall_percentage < 80 else '#f59e0b' if overall_percentage < 100 else '#ef4444' }};">
+                            ₹{{ "%.2f"|format(total_spent) }}
+                        </div>
+                    </div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill {{ 'warning' if overall_percentage >= 80 and overall_percentage < 100 else 'danger' if overall_percentage >= 100 else '' }}" 
+                         style="width: {{ min(overall_percentage, 100) }}%">
+                        {{ "%.1f"|format(overall_percentage) }}%
+                    </div>
+                </div>
+                <div style="margin-top: 10px; color: #9ca3af; font-size: 0.9em;">
+                    Remaining: ₹{{ "%.2f"|format(total_budget - total_spent) }}
+                </div>
+            </div>
+        {% else %}
+            <p style="color: #9ca3af; text-align: center; padding: 40px;">No budgets set for this month yet</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 25px; color: #e5e7eb;">💰 Budget Details - {{ current_month }}</h2>
+    
+    {% if budgets %}
+        <div style="display: grid; gap: 20px;">
+            {% for budget in budgets %}
+            <div style="background: rgba(15, 23, 42, 0.6); padding: 25px; border-radius: 12px; border: 1px solid {{ 'rgba(239, 68, 68, 0.3)' if budget.percentage >= 100 else 'rgba(245, 158, 11, 0.3)' if budget.percentage >= 80 else 'rgba(99, 102, 241, 0.3)' }}; transition: transform 0.3s; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <h3 style="color: #e5e7eb; font-size: 1.3em; margin-bottom: 8px;">
+                            {{ budget.category }}
+                        </h3>
+                        <div style="color: #9ca3af; font-size: 0.95em;">
+                            Budget: <strong style="color: #a5b4fc;">₹{{ "%.2f"|format(budget.budget) }}</strong>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 1.8em; font-weight: bold; color: {{ '#34d399' if budget.percentage < 80 else '#f59e0b' if budget.percentage < 100 else '#ef4444' }};">
+                            {{ "%.1f"|format(budget.percentage) }}%
+                        </div>
+                        <div style="color: #9ca3af; font-size: 0.85em; margin-top: 5px;">
+                            {{ 'On Track ✅' if budget.percentage < 80 else 'Warning ⚠️' if budget.percentage < 100 else 'Over Budget ❌' }}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="progress-bar" style="height: 28px;">
+                    <div class="progress-fill {{ 'warning' if budget.percentage >= 80 and budget.percentage < 100 else 'danger' if budget.percentage >= 100 else '' }}" 
+                         style="width: {{ min(budget.percentage, 100) }}%; font-size: 0.9em;">
+                        ₹{{ "%.2f"|format(budget.spent) }} spent
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                    <div>
+                        <div style="color: #9ca3af; font-size: 0.85em;">Spent</div>
+                        <div style="color: #f87171; font-weight: 600; font-size: 1.1em;">
+                            ₹{{ "%.2f"|format(budget.spent) }}
+                        </div>
+                    </div>
+                    <div>
+                        <div style="color: #9ca3af; font-size: 0.85em;">Remaining</div>
+                        <div style="color: {{ '#34d399' if budget.remaining > 0 else '#ef4444' }}; font-weight: 600; font-size: 1.1em;">
+                            ₹{{ "%.2f"|format(budget.remaining) }}
+                        </div>
+                    </div>
+                    <div>
+                        <div style="color: #9ca3af; font-size: 0.85em;">Daily Average</div>
+                        <div style="color: #a5b4fc; font-weight: 600; font-size: 1.1em;">
+                            ₹{{ "%.2f"|format(budget.spent / 30) }}
+                        </div>
+                    </div>
+                </div>
+                
+                {% if budget.percentage >= 100 %}
+                <div style="margin-top: 15px; padding: 12px; background: rgba(239, 68, 68, 0.15); border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                    <strong style="color: #f87171;">⚠️ Budget Exceeded!</strong>
+                    <div style="color: #fca5a5; font-size: 0.9em; margin-top: 5px;">
+                        You've exceeded your budget by ₹{{ "%.2f"|format(abs(budget.remaining)) }}
+                    </div>
+                </div>
+                {% elif budget.percentage >= 80 %}
+                <div style="margin-top: 15px; padding: 12px; background: rgba(245, 158, 11, 0.15); border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <strong style="color: #fbbf24;">⚠️ Approaching Limit</strong>
+                    <div style="color: #fcd34d; font-size: 0.9em; margin-top: 5px;">
+                        Be careful! Only ₹{{ "%.2f"|format(budget.remaining) }} left
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div style="text-align: center; padding: 60px 20px;">
+            <div style="font-size: 4em; margin-bottom: 20px; opacity: 0.3;">💰</div>
+            <h3 style="color: #9ca3af; margin-bottom: 10px;">No budgets set yet</h3>
+            <p style="color: #6b7280;">Start by setting your first budget above to track your spending!</p>
+        </div>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Set current month as default
+    document.getElementById('month').value = '{{ current_month }}';
+</script>
+{% endblock %}
