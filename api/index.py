@@ -31,6 +31,81 @@ class DataStore:
 # Global data store
 db = DataStore()
 
+# Add sample data for testing/demo
+def init_sample_data():
+    """Initialize with sample data for demo purposes"""
+    # Check if data already exists
+    if len(db.transactions) > 0:
+        return
+    
+    # Sample transactions for last 6 months
+    categories_income = ['Salary', 'Freelance', 'Investment', 'Bonus']
+    categories_expense = ['Food', 'Transportation', 'Rent', 'Entertainment', 'Shopping', 'Utilities', 'Healthcare']
+    
+    for i in range(6):
+        month_offset = 30 * i
+        month = (datetime.now() - timedelta(days=month_offset))
+        
+        # Add 2-3 income transactions per month
+        for j in range(3):
+            date = (month - timedelta(days=j*10)).strftime('%Y-%m-%d')
+            db.add_transaction({
+                'type': 'income',
+                'category': categories_income[j % len(categories_income)],
+                'amount': 50000 + (j * 5000),
+                'description': f'Sample income {j+1}',
+                'date': date
+            })
+        
+        # Add 5-8 expense transactions per month
+        for j in range(8):
+            date = (month - timedelta(days=j*3)).strftime('%Y-%m-%d')
+            db.add_transaction({
+                'type': 'expense',
+                'category': categories_expense[j % len(categories_expense)],
+                'amount': 2000 + (j * 500),
+                'description': f'Sample expense {j+1}',
+                'date': date
+            })
+    
+    # Add sample budgets for current month
+    current_month = datetime.now().strftime('%Y-%m')
+    sample_budgets = [
+        {'category': 'Food', 'amount': 15000, 'month': current_month},
+        {'category': 'Transportation', 'amount': 5000, 'month': current_month},
+        {'category': 'Entertainment', 'amount': 8000, 'month': current_month},
+        {'category': 'Shopping', 'amount': 10000, 'month': current_month}
+    ]
+    
+    for i, budget in enumerate(sample_budgets):
+        budget['id'] = i + 1
+        db.budgets.append(budget)
+    
+    # Add sample savings goals
+    sample_goals = [
+        {
+            'name': 'Emergency Fund',
+            'target_amount': 100000,
+            'current_amount': 45000,
+            'deadline': (datetime.now() + timedelta(days=180)).strftime('%Y-%m-%d')
+        },
+        {
+            'name': 'Vacation Trip',
+            'target_amount': 50000,
+            'current_amount': 12000,
+            'deadline': (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
+        },
+        {
+            'name': 'New Laptop',
+            'target_amount': 80000,
+            'current_amount': 30000,
+            'deadline': (datetime.now() + timedelta(days=120)).strftime('%Y-%m-%d')
+        }
+    ]
+    
+    for goal in sample_goals:
+        db.add_goal(goal)
+
 @app.route('/')
 def index():
     current_month = datetime.now().strftime('%Y-%m')

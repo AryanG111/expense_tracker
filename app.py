@@ -1,19 +1,30 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from datetime import datetime, timedelta
-import sqlite3
-import json
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
+# Set template folder to current directory (root)
+app = Flask(__name__, template_folder='.')
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 
-# Database initialization
+# Database connection using environment variable
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+def get_db():
+    """Get database connection with dict cursor"""
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.cursor_factory = RealDictCursor
+    return conn
+
 def init_db():
-    conn = sqlite3.connect('finance_tracker.db')
+    """Initialize database tables"""
+    conn = get_db()
     c = conn.cursor()
     
     # Transactions table
     c.execute('''CREATE TABLE IF NOT EXISTS transactions
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 (id SERIAL PRIMARY KEY,
                   type TEXT NOT NULL,
                   category TEXT NOT NULL,
                   amount REAL NOT NULL,
@@ -23,14 +34,14 @@ def init_db():
     
     # Budgets table
     c.execute('''CREATE TABLE IF NOT EXISTS budgets
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 (id SERIAL PRIMARY KEY,
                   category TEXT NOT NULL UNIQUE,
                   amount REAL NOT NULL,
                   month TEXT NOT NULL)''')
     
     # Savings goals table
     c.execute('''CREATE TABLE IF NOT EXISTS savings_goals
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 (id SERIAL PRIMARY KEY,
                   name TEXT NOT NULL,
                   target_amount REAL NOT NULL,
                   current_amount REAL DEFAULT 0,
@@ -39,12 +50,6 @@ def init_db():
     
     conn.commit()
     conn.close()
-
-# Helper function to get database connection
-def get_db():
-    conn = sqlite3.connect('finance_tracker.db')
-    conn.row_factory = sqlite3.Row
-    return conn
 
 @app.route('/')
 def index():
@@ -55,13 +60,15 @@ def index():
     current_month = datetime.now().strftime('%Y-%m')
     
     # Calculate total income and expenses
-    c.execute("SELECT SUM(amount) FROM transactions WHERE type='income' AND date LIKE ?", 
+    c.execute("SELECT SUM(amount) as total FROM transactions WHERE type='income' AND date LIKE %s", 
               (current_month + '%',))
-    total_income = c.fetchone()[0] or 0
+    result = c.fetchone()
+    total_income = result['total'] or 0
     
-    c.execute("SELECT SUM(amount) FROM transactions WHERE type='expense' AND date LIKE ?", 
+    c.execute("SELECT SUM(amount) as total FROM transactions WHERE type='expense' AND date LIKE %s", 
               (current_month + '%',))
-    total_expenses = c.fetchone()[0] or 0
+    result = c.fetchone()
+    total_expenses = result['total'] or 0
     
     # Get recent transactions
     c.execute("SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 10")
@@ -70,7 +77,7 @@ def index():
     # Get expense by category for current month
     c.execute("""SELECT category, SUM(amount) as total 
                  FROM transactions 
-                 WHERE type='expense' AND date LIKE ?
+                 WHERE type='expense' AND date LIKE %s
                  GROUP BY category""", (current_month + '%',))
     expense_by_category = c.fetchall()
     
@@ -100,7 +107,7 @@ def add_transaction():
     
     conn = get_db()
     c = conn.cursor()
-    c.execute("INSERT INTO transactions (type, category, amount, description, date) VALUES (?, ?, ?, ?, ?)",
+    c.execute("INSERT INTO transactions (type, category, amount, description, date) VALUES (%s, %s, %s, %s, %s)",
               (trans_type, category, amount, description, date))
     conn.commit()
     conn.close()
@@ -122,19 +129,19 @@ def transactions():
     params = []
     
     if filter_type != 'all':
-        query += " AND type = ?"
+        query += " AND type = %s"
         params.append(filter_type)
     
     if filter_category != 'all':
-        query += " AND category = ?"
+        query += " AND category = %s"
         params.append(filter_category)
     
     if start_date:
-        query += " AND date >= ?"
+        query += " AND date >= %s"
         params.append(start_date)
     
     if end_date:
-        query += " AND date <= ?"
+        query += " AND date <= %s"
         params.append(end_date)
     
     query += " ORDER BY date DESC, id DESC"
@@ -160,7 +167,7 @@ def transactions():
 def delete_transaction(id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM transactions WHERE id = ?", (id,))
+    c.execute("DELETE FROM transactions WHERE id = %s", (id,))
     conn.commit()
     conn.close()
     return redirect(url_for('transactions'))
@@ -173,16 +180,17 @@ def budgets():
     current_month = datetime.now().strftime('%Y-%m')
     
     # Get budgets for current month
-    c.execute("SELECT * FROM budgets WHERE month = ?", (current_month,))
+    c.execute("SELECT * FROM budgets WHERE month = %s", (current_month,))
     budget_list = c.fetchall()
     
     # Get actual spending by category for current month
     budget_data = []
     for budget in budget_list:
-        c.execute("""SELECT SUM(amount) FROM transactions 
-                     WHERE type='expense' AND category=? AND date LIKE ?""",
+        c.execute("""SELECT SUM(amount) as spent FROM transactions 
+                     WHERE type='expense' AND category=%s AND date LIKE %s""",
                   (budget['category'], current_month + '%'))
-        spent = c.fetchone()[0] or 0
+        result = c.fetchone()
+        spent = result['spent'] or 0
         budget_data.append({
             'id': budget['id'],
             'category': budget['category'],
@@ -206,14 +214,14 @@ def add_budget():
     c = conn.cursor()
     
     # Check if budget already exists for this category and month
-    c.execute("SELECT id FROM budgets WHERE category=? AND month=?", (category, month))
+    c.execute("SELECT id FROM budgets WHERE category=%s AND month=%s", (category, month))
     existing = c.fetchone()
     
     if existing:
-        c.execute("UPDATE budgets SET amount=? WHERE category=? AND month=?",
+        c.execute("UPDATE budgets SET amount=%s WHERE category=%s AND month=%s",
                   (amount, category, month))
     else:
-        c.execute("INSERT INTO budgets (category, amount, month) VALUES (?, ?, ?)",
+        c.execute("INSERT INTO budgets (category, amount, month) VALUES (%s, %s, %s)",
                   (category, amount, month))
     
     conn.commit()
@@ -240,7 +248,7 @@ def add_savings_goal():
     
     conn = get_db()
     c = conn.cursor()
-    c.execute("INSERT INTO savings_goals (name, target_amount, current_amount, deadline) VALUES (?, ?, ?, ?)",
+    c.execute("INSERT INTO savings_goals (name, target_amount, current_amount, deadline) VALUES (%s, %s, %s, %s)",
               (name, target_amount, current_amount, deadline))
     conn.commit()
     conn.close()
@@ -253,7 +261,7 @@ def update_savings(id):
     
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE savings_goals SET current_amount = current_amount + ? WHERE id = ?",
+    c.execute("UPDATE savings_goals SET current_amount = current_amount + %s WHERE id = %s",
               (amount, id))
     conn.commit()
     conn.close()
@@ -264,7 +272,7 @@ def update_savings(id):
 def delete_savings(id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM savings_goals WHERE id = ?", (id,))
+    c.execute("DELETE FROM savings_goals WHERE id = %s", (id,))
     conn.commit()
     conn.close()
     return redirect(url_for('savings'))
@@ -279,13 +287,15 @@ def reports():
     for i in range(5, -1, -1):
         month = (datetime.now() - timedelta(days=30*i)).strftime('%Y-%m')
         
-        c.execute("SELECT SUM(amount) FROM transactions WHERE type='income' AND date LIKE ?",
+        c.execute("SELECT SUM(amount) as income FROM transactions WHERE type='income' AND date LIKE %s",
                   (month + '%',))
-        income = c.fetchone()[0] or 0
+        result = c.fetchone()
+        income = result['income'] or 0
         
-        c.execute("SELECT SUM(amount) FROM transactions WHERE type='expense' AND date LIKE ?",
+        c.execute("SELECT SUM(amount) as expense FROM transactions WHERE type='expense' AND date LIKE %s",
                   (month + '%',))
-        expense = c.fetchone()[0] or 0
+        result = c.fetchone()
+        expense = result['expense'] or 0
         
         monthly_data.append({
             'month': month,
@@ -298,7 +308,7 @@ def reports():
     current_month = datetime.now().strftime('%Y-%m')
     c.execute("""SELECT category, SUM(amount) as total 
                  FROM transactions 
-                 WHERE type='expense' AND date LIKE ?
+                 WHERE type='expense' AND date LIKE %s
                  GROUP BY category
                  ORDER BY total DESC""", (current_month + '%',))
     category_spending = c.fetchall()
@@ -309,7 +319,16 @@ def reports():
                          monthly_data=monthly_data,
                          category_spending=category_spending)
 
-# HTML Templates (create these in a 'templates' folder)
+# Initialize database on first run (only if DATABASE_URL is set)
+if DATABASE_URL:
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+
+# For Vercel - this is critical!
+app.debug = False
+
+# Vercel will look for 'app' variable
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True)
+    app.run(debug=False, host='0.0.0.0', port=5000)
