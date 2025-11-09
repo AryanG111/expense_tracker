@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for
 from datetime import datetime, timedelta
 import os
 
@@ -6,8 +6,7 @@ import os
 app = Flask(__name__, template_folder='../templates')
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-this')
 
-# In-memory storage (resets on each deployment)
-# For persistent storage, you'd need to add a database
+# Simple in-memory storage
 class DataStore:
     def __init__(self):
         self.transactions = []
@@ -15,6 +14,7 @@ class DataStore:
         self.savings_goals = []
         self.transaction_id = 1
         self.goal_id = 1
+        self.budget_id = 1
     
     def add_transaction(self, data):
         data['id'] = self.transaction_id
@@ -31,81 +31,6 @@ class DataStore:
 # Global data store
 db = DataStore()
 
-# Add sample data for testing/demo
-def init_sample_data():
-    """Initialize with sample data for demo purposes"""
-    # Check if data already exists
-    if len(db.transactions) > 0:
-        return
-    
-    # Sample transactions for last 6 months
-    categories_income = ['Salary', 'Freelance', 'Investment', 'Bonus']
-    categories_expense = ['Food', 'Transportation', 'Rent', 'Entertainment', 'Shopping', 'Utilities', 'Healthcare']
-    
-    for i in range(6):
-        month_offset = 30 * i
-        month = (datetime.now() - timedelta(days=month_offset))
-        
-        # Add 2-3 income transactions per month
-        for j in range(3):
-            date = (month - timedelta(days=j*10)).strftime('%Y-%m-%d')
-            db.add_transaction({
-                'type': 'income',
-                'category': categories_income[j % len(categories_income)],
-                'amount': 50000 + (j * 5000),
-                'description': f'Sample income {j+1}',
-                'date': date
-            })
-        
-        # Add 5-8 expense transactions per month
-        for j in range(8):
-            date = (month - timedelta(days=j*3)).strftime('%Y-%m-%d')
-            db.add_transaction({
-                'type': 'expense',
-                'category': categories_expense[j % len(categories_expense)],
-                'amount': 2000 + (j * 500),
-                'description': f'Sample expense {j+1}',
-                'date': date
-            })
-    
-    # Add sample budgets for current month
-    current_month = datetime.now().strftime('%Y-%m')
-    sample_budgets = [
-        {'category': 'Food', 'amount': 15000, 'month': current_month},
-        {'category': 'Transportation', 'amount': 5000, 'month': current_month},
-        {'category': 'Entertainment', 'amount': 8000, 'month': current_month},
-        {'category': 'Shopping', 'amount': 10000, 'month': current_month}
-    ]
-    
-    for i, budget in enumerate(sample_budgets):
-        budget['id'] = i + 1
-        db.budgets.append(budget)
-    
-    # Add sample savings goals
-    sample_goals = [
-        {
-            'name': 'Emergency Fund',
-            'target_amount': 100000,
-            'current_amount': 45000,
-            'deadline': (datetime.now() + timedelta(days=180)).strftime('%Y-%m-%d')
-        },
-        {
-            'name': 'Vacation Trip',
-            'target_amount': 50000,
-            'current_amount': 12000,
-            'deadline': (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
-        },
-        {
-            'name': 'New Laptop',
-            'target_amount': 80000,
-            'current_amount': 30000,
-            'deadline': (datetime.now() + timedelta(days=120)).strftime('%Y-%m-%d')
-        }
-    ]
-    
-    for goal in sample_goals:
-        db.add_goal(goal)
-
 @app.route('/')
 def index():
     current_month = datetime.now().strftime('%Y-%m')
@@ -116,7 +41,7 @@ def index():
     balance = total_income - total_expenses
     
     # Get recent transactions
-    recent_transactions = sorted(db.transactions, key=lambda x: x['date'], reverse=True)[:10]
+    recent_transactions = sorted(db.transactions, key=lambda x: x.get('date', ''), reverse=True)[:10]
     
     # Calculate expense by category
     expense_by_category = {}
@@ -137,14 +62,18 @@ def index():
 
 @app.route('/add_transaction', methods=['POST'])
 def add_transaction():
-    transaction = {
-        'type': request.form['type'],
-        'category': request.form['category'],
-        'amount': float(request.form['amount']),
-        'description': request.form.get('description', ''),
-        'date': request.form['date']
-    }
-    db.add_transaction(transaction)
+    try:
+        transaction = {
+            'type': request.form['type'],
+            'category': request.form['category'],
+            'amount': float(request.form['amount']),
+            'description': request.form.get('description', ''),
+            'date': request.form['date']
+        }
+        db.add_transaction(transaction)
+    except Exception as e:
+        print(f"Error adding transaction: {e}")
+    
     return redirect(url_for('index'))
 
 @app.route('/transactions')
@@ -155,20 +84,26 @@ def transactions():
     end_date = request.args.get('end_date', '')
     
     # Apply filters
-    filtered = db.transactions
+    filtered = db.transactions[:]
     if filter_type != 'all':
-        filtered = [t for t in filtered if t['type'] == filter_type]
+        filtered = [t for t in filtered if t.get('type') == filter_type]
     if filter_category != 'all':
-        filtered = [t for t in filtered if t['category'] == filter_category]
+        filtered = [t for t in filtered if t.get('category') == filter_category]
     if start_date:
-        filtered = [t for t in filtered if t['date'] >= start_date]
+        filtered = [t for t in filtered if t.get('date', '') >= start_date]
     if end_date:
-        filtered = [t for t in filtered if t['date'] <= end_date]
+        filtered = [t for t in filtered if t.get('date', '') <= end_date]
     
     # Get unique categories
-    categories = list(set([{'category': t['category']} for t in db.transactions]))
+    categories = []
+    seen = set()
+    for t in db.transactions:
+        cat = t.get('category')
+        if cat and cat not in seen:
+            categories.append({'category': cat})
+            seen.add(cat)
     
-    filtered = sorted(filtered, key=lambda x: x['date'], reverse=True)
+    filtered = sorted(filtered, key=lambda x: x.get('date', ''), reverse=True)
     
     return render_template('transactions.html',
                          transactions=filtered,
@@ -180,7 +115,7 @@ def transactions():
 
 @app.route('/delete_transaction/<int:id>')
 def delete_transaction(id):
-    db.transactions = [t for t in db.transactions if t['id'] != id]
+    db.transactions = [t for t in db.transactions if t.get('id') != id]
     return redirect(url_for('transactions'))
 
 @app.route('/budgets')
@@ -190,22 +125,23 @@ def budgets():
     # Calculate spending by category
     spending = {}
     for t in db.transactions:
-        if t['type'] == 'expense' and t['date'].startswith(current_month):
-            cat = t['category']
-            spending[cat] = spending.get(cat, 0) + t['amount']
+        if t.get('type') == 'expense' and t.get('date', '').startswith(current_month):
+            cat = t.get('category')
+            spending[cat] = spending.get(cat, 0) + t.get('amount', 0)
     
     # Create budget data
     budget_data = []
     for budget in db.budgets:
-        if budget['month'] == current_month:
-            spent = spending.get(budget['category'], 0)
+        if budget.get('month') == current_month:
+            spent = spending.get(budget.get('category'), 0)
+            budget_amount = budget.get('amount', 0)
             budget_data.append({
-                'id': budget['id'],
-                'category': budget['category'],
-                'budget': budget['amount'],
+                'id': budget.get('id'),
+                'category': budget.get('category'),
+                'budget': budget_amount,
                 'spent': spent,
-                'remaining': budget['amount'] - spent,
-                'percentage': (spent / budget['amount'] * 100) if budget['amount'] > 0 else 0
+                'remaining': budget_amount - spent,
+                'percentage': (spent / budget_amount * 100) if budget_amount > 0 else 0
             })
     
     return render_template('budgets.html',
@@ -214,22 +150,30 @@ def budgets():
 
 @app.route('/add_budget', methods=['POST'])
 def add_budget():
-    category = request.form['category']
-    amount = float(request.form['amount'])
-    month = request.form.get('month', datetime.now().strftime('%Y-%m'))
-    
-    # Check if exists
-    existing = next((b for b in db.budgets if b['category'] == category and b['month'] == month), None)
-    
-    if existing:
-        existing['amount'] = amount
-    else:
-        db.budgets.append({
-            'id': len(db.budgets) + 1,
-            'category': category,
-            'amount': amount,
-            'month': month
-        })
+    try:
+        category = request.form['category']
+        amount = float(request.form['amount'])
+        month = request.form.get('month', datetime.now().strftime('%Y-%m'))
+        
+        # Check if exists
+        existing = None
+        for b in db.budgets:
+            if b.get('category') == category and b.get('month') == month:
+                existing = b
+                break
+        
+        if existing:
+            existing['amount'] = amount
+        else:
+            db.budgets.append({
+                'id': db.budget_id,
+                'category': category,
+                'amount': amount,
+                'month': month
+            })
+            db.budget_id += 1
+    except Exception as e:
+        print(f"Error adding budget: {e}")
     
     return redirect(url_for('budgets'))
 
@@ -240,59 +184,81 @@ def savings():
 
 @app.route('/add_savings_goal', methods=['POST'])
 def add_savings_goal():
-    goal = {
-        'name': request.form['name'],
-        'target_amount': float(request.form['target_amount']),
-        'current_amount': float(request.form.get('current_amount', 0)),
-        'deadline': request.form.get('deadline', '')
-    }
-    db.add_goal(goal)
+    try:
+        goal = {
+            'name': request.form['name'],
+            'target_amount': float(request.form['target_amount']),
+            'current_amount': float(request.form.get('current_amount', 0)),
+            'deadline': request.form.get('deadline', '')
+        }
+        db.add_goal(goal)
+    except Exception as e:
+        print(f"Error adding goal: {e}")
+    
     return redirect(url_for('savings'))
 
 @app.route('/update_savings/<int:id>', methods=['POST'])
 def update_savings(id):
-    amount = float(request.form['amount'])
-    goal = next((g for g in db.savings_goals if g['id'] == id), None)
-    if goal:
-        goal['current_amount'] += amount
+    try:
+        amount = float(request.form['amount'])
+        for goal in db.savings_goals:
+            if goal.get('id') == id:
+                goal['current_amount'] = goal.get('current_amount', 0) + amount
+                break
+    except Exception as e:
+        print(f"Error updating savings: {e}")
+    
     return redirect(url_for('savings'))
 
 @app.route('/delete_savings/<int:id>')
 def delete_savings(id):
-    db.savings_goals = [g for g in db.savings_goals if g['id'] != id]
+    db.savings_goals = [g for g in db.savings_goals if g.get('id') != id]
     return redirect(url_for('savings'))
 
 @app.route('/reports')
 def reports():
-    # Calculate monthly data (last 6 months)
-    monthly_data = []
-    for i in range(5, -1, -1):
-        month = (datetime.now() - timedelta(days=30*i)).strftime('%Y-%m')
-        income = sum(t['amount'] for t in db.transactions if t['type'] == 'income' and t['date'].startswith(month))
-        expense = sum(t['amount'] for t in db.transactions if t['type'] == 'expense' and t['date'].startswith(month))
-        monthly_data.append({
-            'month': month,
-            'income': income,
-            'expense': expense,
-            'savings': income - expense
-        })
-    
-    # Category spending (current month)
-    current_month = datetime.now().strftime('%Y-%m')
-    category_spending = {}
-    for t in db.transactions:
-        if t['type'] == 'expense' and t['date'].startswith(current_month):
-            cat = t['category']
-            category_spending[cat] = category_spending.get(cat, 0) + t['amount']
-    
-    spending_list = sorted([{'category': k, 'total': v} for k, v in category_spending.items()], 
-                          key=lambda x: x['total'], reverse=True)
-    
-    return render_template('reports.html',
-                         monthly_data=monthly_data,
-                         category_spending=spending_list)
+    try:
+        # Calculate monthly data (last 6 months)
+        monthly_data = []
+        for i in range(5, -1, -1):
+            month = (datetime.now() - timedelta(days=30*i)).strftime('%Y-%m')
+            income = sum(t.get('amount', 0) for t in db.transactions 
+                        if t.get('type') == 'income' and t.get('date', '').startswith(month))
+            expense = sum(t.get('amount', 0) for t in db.transactions 
+                         if t.get('type') == 'expense' and t.get('date', '').startswith(month))
+            monthly_data.append({
+                'month': month,
+                'income': income,
+                'expense': expense,
+                'savings': income - expense
+            })
+        
+        # Category spending (current month)
+        current_month = datetime.now().strftime('%Y-%m')
+        category_spending = {}
+        for t in db.transactions:
+            if t.get('type') == 'expense' and t.get('date', '').startswith(current_month):
+                cat = t.get('category')
+                category_spending[cat] = category_spending.get(cat, 0) + t.get('amount', 0)
+        
+        spending_list = sorted([{'category': k, 'total': v} for k, v in category_spending.items()], 
+                              key=lambda x: x['total'], reverse=True)
+        
+        return render_template('reports.html',
+                             monthly_data=monthly_data,
+                             category_spending=spending_list)
+    except Exception as e:
+        print(f"Error in reports: {e}")
+        return render_template('reports.html',
+                             monthly_data=[],
+                             category_spending=[])
 
-# Vercel will call this
+# Health check endpoint
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'transactions': len(db.transactions)}, 200
+
+# Vercel handler
 app.debug = False
 
 # For local testing
